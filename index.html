@@ -1896,7 +1896,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }return out;
   }
   function assessmentEvidenceRows(plan,childVisitIndex){
-    const childRows=childVisitIndex.get(frequencyChildKey(plan.childId))||[],start=parseDateValue(plan.originationDate)||parseDateValue(plan.startDate),end=parseDateValue(plan.endDate),originationIso=dateIso(parseDateValue(plan.originationDate)),explicit=isAssessmentDeliveryPlan(plan);
+    const childRows=childVisitIndex.get(frequencyChildKey(plan.childId))||[],start=parseDateValue(plan.startDate),end=parseDateValue(plan.endDate),originationIso=dateIso(parseDateValue(plan.originationDate)),explicit=isAssessmentDeliveryPlan(plan);
     return childRows.filter(v=>{const d=parseDateValue(v.dos);if(!d||start&&d<start||end&&d>end||serviceFamilyMatchScore(plan.service,v.service)<=0)return false;if(explicit)return true;return serviceLooksAssessment(v.service)||Boolean(originationIso&&v.dos===originationIso)});
   }
   function assessmentContexts(plans,childVisitIndex){
@@ -1957,7 +1957,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const cacheKey=assessmentEvaluationCacheKey(),cached=boundedCacheGet(assessmentEvalCacheMap,cacheKey);if(cached)return cached;
     const rec=selectedRecord(),scope=planFilterScope(),plans=(rec?.planRows||[]).filter(isAssessmentDeliveryPlan).filter(plan=>planFilterMatch(plan,scope)),months=selectedFrequencyMonths(),today=new Date(),childVisitIndex=baseVisitAnalytics().byChild,out=[];today.setHours(0,0,0,0);
     for(const plan of plans){
-      const start=parseDateValue(plan.originationDate)||parseDateValue(plan.startDate),end=parseDateValue(plan.endDate),req={kind:'assessment',countStart:start?dateIso(start):'',displayStart:start?dateIso(start):'',dueDate:end?dateIso(end):''};if(months.length&&!requirementOverlapsSelectedMonths(req,months))continue;
+      const start=parseDateValue(plan.startDate),end=parseDateValue(plan.endDate),req={kind:'assessment',countStart:start?dateIso(start):'',displayStart:start?dateIso(start):'',dueDate:end?dateIso(end):''};if(months.length&&!requirementOverlapsSelectedMonths(req,months))continue;
       const evidence=assessmentEvidenceRows(plan,childVisitIndex),delivered=evidence.filter(rowIsDelivered).sort((a,b)=>a.dos.localeCompare(b.dos)),completion=delivered[0]||null,submitted=evidence.length,daysRemaining=end?calendarDayDiff(today,end):null;let status='Upcoming',statusKey='progress',reason='More than 30 days until End Date';
       if(!end){status='Needs Review';statusKey='review';reason='Missing End Date'}
       else if(start&&start>end){status='Needs Review';statusKey='review';reason='Assessment start/origination is after End Date'}
@@ -2410,6 +2410,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     {key:'childId',label:'Child ID',type:'text',cell:r=>childEntityLink(r,r.childId||''),sortValue:r=>r.childId||'',filterValue:r=>r.childId||''},
     {key:'service',label:'Planned Service',type:'text',cell:r=>esc(r.service||''),sortValue:r=>r.service||'',filterValue:r=>r.service||''},
     {key:'discipline',label:'Discipline',type:'text',cell:r=>esc(r.discipline||'—'),sortValue:r=>r.discipline||'',filterValue:r=>r.discipline||''},
+    {key:'frequencyText',label:'Frequency & Intensity',type:'text',cell:r=>esc(r.frequencyText||'—'),sortValue:r=>r.frequencyText||'',filterValue:r=>r.frequencyText||''},
     {key:'assessmentStart',label:'Assessment Start',type:'date',cell:r=>esc(r.assessmentStart||'—'),sortValue:r=>r.assessmentStart||'',filterValue:r=>r.assessmentStart||''},
     {key:'endDate',label:'End Date',type:'date',cell:r=>esc(r.endDate||'—'),sortValue:r=>r.endDate||'',filterValue:r=>r.endDate||''},
     {key:'completionDate',label:'Delivered Date',type:'date',cell:r=>esc(r.completionDate||'—'),sortValue:r=>r.completionDate||'',filterValue:r=>r.completionDate||''},
