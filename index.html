@@ -195,7 +195,7 @@ body:not(.has-report) .view-tab[data-tab="work"],body:not(.has-report) .view-tab
   <div class="topbar">
     <div class="brand">
       <h1>Provider Visit Reporting Dashboard</h1>
-      <div class="sub">Combine visit logs and service-plan data from Excel or pasted data <span class="app-version">v3.1.8</span></div>
+      <div class="sub">Combine visit logs and service-plan data from Excel or pasted data <span class="app-version">v3.1.9</span></div>
     </div>
     <div class="actions">
       <button class="btn primary" id="addFilesBtn" type="button">Import Excel</button>
@@ -265,7 +265,7 @@ body:not(.has-report) .view-tab[data-tab="work"],body:not(.has-report) .view-tab
     <section class="panel manager-attention">
       <div class="panel-head">
         <div><div class="panel-title">Needs Attention</div><div id="managerAttentionMeta" class="panel-meta">Delayed and review items from the current view</div></div>
-        <div class="panel-head-actions"><label class="panel-control"><span>Show</span><select id="managerAttentionFilter" class="select attention-filter" aria-label="Filter needs attention items"><option value="all">All attention items</option><option value="late">Delayed documentation</option><option value="noDelivery">No Delivered visit</option><option value="cancellation">Cancellation reviews</option><option value="quality">Time entry check</option><option value="assessment">Assessment deadlines</option><option value="frequency">Frequencies</option><option value="dataFreshness">Source data incomplete</option></select></label><button id="managerAttentionSortBtn" class="btn" type="button">Sort</button><button id="managerAttentionColumnsBtn" class="btn" type="button">Columns</button><button id="managerAttentionExportBtn" class="btn" type="button" disabled>Export Excel</button><button class="btn" type="button" data-export-selected-key="manager-attention" data-export-selected-suffix="manager_needs_attention_selected" disabled>Export Selected</button></div>
+        <div class="panel-head-actions"><label class="panel-control"><span>Show</span><select id="managerAttentionFilter" class="select attention-filter" aria-label="Filter needs attention items"><option value="all">All attention items</option><option value="late">Delayed documentation</option><option value="noDelivery">No Delivered visit</option><option value="cancellation">Cancellation reviews</option><option value="quality">Time entry check</option><option value="assessment">Assessment deadlines</option><option value="frequency">Frequencies</option><option value="dataFreshness">Source data incomplete</option><option value="sourceGap">Source data gaps</option></select></label><button id="managerAttentionSortBtn" class="btn" type="button">Sort</button><button id="managerAttentionColumnsBtn" class="btn" type="button">Columns</button><button id="managerAttentionExportBtn" class="btn" type="button" disabled>Export Excel</button><button class="btn" type="button" data-export-selected-key="manager-attention" data-export-selected-suffix="manager_needs_attention_selected" disabled>Export Selected</button></div>
       </div>
       <div id="managerAttentionSummary" class="summary-strip">
         <button type="button" class="summary-stat summary-filter-stat bad" data-attention-filter="late" aria-pressed="false" title="Show delayed documentation items"><span class="label">Delayed Documentation</span><span id="attentionLateCount" class="value">0</span></button>
@@ -275,6 +275,7 @@ body:not(.has-report) .view-tab[data-tab="work"],body:not(.has-report) .view-tab
         <button type="button" class="summary-stat summary-filter-stat warn" data-attention-filter="assessment" aria-pressed="false" title="Show assessment alerts"><span class="label">Assessment Alerts</span><span id="attentionAssessmentCount" class="value">0</span></button>
         <button type="button" class="summary-stat summary-filter-stat warn" data-attention-filter="frequency" aria-pressed="false" title="Show confirmed frequency alerts"><span class="label">Frequency Alerts</span><span id="attentionFrequencyCount" class="value">0</span></button>
         <button type="button" class="summary-stat summary-filter-stat data" data-attention-filter="dataFreshness" aria-pressed="false" title="Show items where source data does not cover the dates needed to judge compliance"><span class="label">Source Data Incomplete</span><span id="attentionFreshnessCount" class="value">0</span></button>
+        <button type="button" class="summary-stat summary-filter-stat warn" data-attention-filter="sourceGap" aria-pressed="false" title="Show two or more consecutive business days with no visits across the entire dataset"><span class="label">Source Data Gaps</span><span id="attentionGapCount" class="value">0</span></button>
       </div>
       <div class="table-wrap manager-attention-table-wrap">
         <table id="managerAttentionTable" class="manager-attention-table" style="display:none"><thead></thead><tbody></tbody></table>
@@ -1922,7 +1923,40 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   let verifiedCoverageCache=null;
   function verifiedCoverageIntervals(){return scopedCoverageIntervals()}
-  function datasetCoversWindow(startValue,endValue,row=null){const start=parseDateValue(startValue),end=parseDateValue(endValue);if(!start||!end||start>end)return false;return scopedCoverageIntervals(row?{...row,_coverageWindowStart:dateIso(start),_coverageWindowEnd:dateIso(end)}:null).some(i=>{const a=parseDateValue(i.start),b=parseDateValue(i.end);return a&&b&&a<=start&&b>=end})}
+  // All submitted visit types establish dataset-wide daily coverage before UI filters.
+  // Empty business-day streaks are warnings independent of provider compliance.
+  let visitDayCoverageCache=null;
+  function visitDayCoverageIndex(){
+    const base=baseVisitAnalytics(),today=dateIso(new Date()),key=base.key+'|'+today;
+    if(visitDayCoverageCache?.key===key)return visitDayCoverageCache.value;
+    const days=new Set();
+    for(const row of base.visits){const dos=cleanText(row.dos);if(dos&&dos<=today&&parseDateValue(dos))days.add(dos)}
+    const sorted=[...days].sort(),first=sorted[0]||'',last=sorted.at(-1)||'',gaps=[];
+    if(first&&last){
+      let run=[],cursor=parseDateValue(first),end=parseDateValue(last);
+      const finish=()=>{if(run.length>=2)gaps.push({start:run[0],end:run.at(-1),days:[...run],count:run.length});run=[]};
+      while(cursor<=end){
+        const iso=dateIso(cursor),weekday=cursor.getDay(),working=weekday!==0&&weekday!==6&&!isNevadaHoliday(cursor);
+        if(working&&!days.has(iso))run.push(iso);
+        else if(working&&days.has(iso))finish();
+        cursor=addCalendarDays(cursor,1);
+      }
+      finish();
+    }
+    const value={first,last,days,gaps};visitDayCoverageCache={key,value};return value;
+  }
+  function visibleSourceDataGaps(){
+    const months=[...multiValues(els.monthFilter)].filter(m=>/^\d{4}-\d{2}$/.test(m));
+    return visitDayCoverageIndex().gaps.filter(g=>!months.length||g.days.some(d=>months.includes(d.slice(0,7))));
+  }
+  function datasetCoversWindow(startValue,endValue,row=null){
+    const start=parseDateValue(startValue),end=parseDateValue(endValue);if(!start||!end||start>end)return false;
+    const endIso=dateIso(end);
+    // The latest observed visit establishes the reporting cutoff for prior dates.
+    // Missing-day warnings do not automatically excuse missed requirements.
+    if(visitDayCoverageIndex().last>=endIso)return true;
+    return scopedCoverageIntervals(row?{...row,_coverageWindowStart:dateIso(start),_coverageWindowEnd:endIso}:null).some(i=>{const a=parseDateValue(i.start),b=parseDateValue(i.end);return a&&b&&a<=start&&b>=end});
+  }
   function datasetCoversPeriod(period){return Boolean(period&&datasetCoversWindow(period.start,period.end))}
   function selectedVisitPeriodsComplete(){const selected=multiValues(els.monthFilter);if(selected.has(MULTI_NONE))return false;const months=selected.size?[...selected]:availableMonths();if(!months.length)return false;return months.every(m=>{const p=calendarMonthWindow(m);return p&&datasetCoversPeriod(p)})}
   function dataCutoffInfo(){
@@ -1940,7 +1974,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if(!flagged)return{...base,needsUpdatedData:false,sourceDataIncomplete:false,dataConfidence:'Within Data Cutoff',dataConfidenceReason:'This row does not currently need source-data qualification.'};
     const trigger=parseDateValue(triggerDate);if(!trigger)return{...base,needsUpdatedData:false,sourceDataIncomplete:false,dataConfidence:'Within Data Cutoff',dataConfidenceReason:'No requirement date is available for source-data comparison.'};
     const today=new Date();today.setHours(0,0,0,0);const neededThrough=statusKey==='behind'?trigger:(today<trigger?today:trigger),neededIso=dateIso(neededThrough);
-    const scopeStart=scopeRow?.countStart||scopeRow?.assessmentStart||scopeRow?.startDate;if(scopeRow&&scopeStart&&datasetCoversWindow(scopeStart,neededIso,scopeRow))return{...base,dataThrough:neededIso,dataThroughSource:'Declared scoped coverage',dataNeededThrough:neededIso,needsUpdatedData:false,sourceDataIncomplete:false,dataConfidence:'Verified scoped coverage',dataConfidenceReason:`Declared source coverage includes this child/service and all eligible providers from ${scopeStart} through ${neededIso}.`};
+    const scopeStart=scopeRow?.countStart||scopeRow?.assessmentStart||scopeRow?.startDate;if(scopeRow&&scopeStart&&datasetCoversWindow(scopeStart,neededIso,scopeRow))return{...base,dataNeededThrough:neededIso,needsUpdatedData:false,sourceDataIncomplete:false,dataConfidence:'Within Data Cutoff',dataConfidenceReason:`Dataset-wide visit activity establishes coverage through ${neededIso}; any missing business-day streak is flagged separately.`};
     if(coverageGap)return{...base,dataNeededThrough:neededIso,needsUpdatedData:true,sourceDataIncomplete:true,dataConfidence:'Source Data Incomplete',dataConfidenceReason:`Visit coverage has not been verified for the full requirement window through ${neededIso}, so employee compliance cannot be determined from the current upload.`};
     if(!info.date)return{...base,dataNeededThrough:neededIso,needsUpdatedData:true,sourceDataIncomplete:true,dataConfidence:'Source Data Incomplete',dataConfidenceReason:`No visit DOS is available to establish source coverage through ${neededIso}. Employee compliance cannot be determined from the current upload.`};
     const cutoff=parseDateValue(info.date);if(cutoff&&neededThrough>cutoff)return{...base,dataNeededThrough:neededIso,needsUpdatedData:true,sourceDataIncomplete:true,dataConfidence:'Source Data Incomplete',dataConfidenceReason:`Source data is available through ${info.date}, but this review needs data through ${neededIso}. Employee compliance cannot be determined from the current upload.`};
@@ -3345,8 +3379,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const index=sourceEvaluationIndex(),today=index.day,due=requirement.dueDate||requirement.endDate||plan.endDate,needed=due&&due<today?due:today,identity=planIdentityKey(plan);let definition=index.definitions.get(plan);if(!definition){definition=planDefinitionKey(plan);index.definitions.set(plan,definition)}
     const cacheKey=JSON.stringify([identity,definition,needed]);if(index.confidence.has(cacheKey))return index.confidence.get(cacheKey);
     const entries=index.plans.get(identity)||[],allSources=[...new Set(entries.map(e=>e.source))],sources=[...new Set(entries.filter(e=>e.definition===definition).map(e=>e.source))],conflictingUndated=entries.some(e=>!e.source.sourceAsOf&&e.definition!==definition),latest=allSources.map(s=>s.sourceAsOf||'').sort().at(-1)||'',latestDefinitions=new Set(entries.filter(e=>e.source.sourceAsOf===latest).map(e=>e.definition));
-    const verified=!conflictingUndated&&latestDefinitions.size<=1&&sources.some(s=>(!latest||s.sourceAsOf===latest)&&sourceScopeMatches(s,plan)&&enrollmentDate(s.sourceAsOf)&&s.sourceAsOf<=today&&s.sourceAsOf>=needed);
-    const result={verified,needed,sources:sources.map(s=>({name:s.name,sourceAsOf:s.sourceAsOf||'',scope:s.coverageScope||'unknown',coverageStart:s.coverageStart||'',coverageEnd:s.coverageEnd||''})),reason:verified?'Plan source is confirmed for the required date and population/service scope.':`The plan source as-of date or population/service scope is not verified through ${needed||'the required date'}. Submitted/delivered facts are preserved, but the current applicable plan cannot be confirmed. Review Source dates & scope.`};index.confidence.set(cacheKey,result);return result;
+    const observedThrough=visitDayCoverageIndex().last,hasApplicablePlan=sources.some(s=>sourceScopeMatches(s,plan)&&(!latest||!s.sourceAsOf||s.sourceAsOf===latest));
+    const verified=!conflictingUndated&&latestDefinitions.size<=1&&hasApplicablePlan&&(observedThrough>=needed||sources.some(s=>enrollmentDate(s.sourceAsOf)&&s.sourceAsOf<=today&&s.sourceAsOf>=needed));
+    const result={verified,needed,sources:sources.map(s=>({name:s.name,sourceAsOf:s.sourceAsOf||'',scope:s.coverageScope||'unknown',coverageStart:s.coverageStart||'',coverageEnd:s.coverageEnd||''})),reason:verified?'Plan and dataset-wide activity establish the reporting cutoff.':`The applicable plan, its identity, or the source cutoff cannot be confirmed through ${needed||'the required date'}. Submitted/delivered facts are preserved; review Source dates & scope.`};index.confidence.set(cacheKey,result);return result;
   }
   function applySourceAlignment(result,plan=result,requirement=result){
     const info=planSourceConfidence(plan,{...requirement,dueDate:result.applicabilityThrough||requirement.dueDate}),base={...result,planSourceVerified:info.verified,planSourceProvenance:info.sources||[]};if(info.verified||result.lifecycleClosed)return base;
