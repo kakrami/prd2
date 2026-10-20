@@ -195,7 +195,7 @@ body:not(.has-report) .view-tab[data-tab="work"],body:not(.has-report) .view-tab
   <div class="topbar">
     <div class="brand">
       <h1>Provider Visit Reporting Dashboard</h1>
-      <div class="sub">Combine visit logs and service-plan data from Excel or pasted data <span class="app-version">v3.1.9</span></div>
+      <div class="sub">Combine visit logs and service-plan data from Excel or pasted data <span class="app-version">v3.1.10</span></div>
     </div>
     <div class="actions">
       <button class="btn primary" id="addFilesBtn" type="button">Import Excel</button>
@@ -2120,20 +2120,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   function deliveredProvidersText(row){return(row.deliveredProviders||[]).map(x=>x.provider).filter(Boolean).join(', ')||'—'}
   function deliveredProvidersHtml(row){const providers=row.deliveredProviders||[];return providers.length?providers.map(x=>providerEntityLink(x.provider,x.providerKey)).join(', '):'—'}
+  function complianceStatus(result,key=result.statusKey,reason=null){
+  const labels={met:'Met',behind:'Behind',due:'Due Soon',progress:'In Progress',review:'Needs Review',closed:'Not Applicable'};
+  const statusKey=Object.prototype.hasOwnProperty.call(labels,key)?key:'review';
+  return {...result,statusKey,status:labels[statusKey],...(reason?{reason,statusReason:reason}:{})};
+}
   function requirementStatus(requirement,counted,rules,today){
-    if(requirement.error)return{status:'Needs Review',statusKey:'review',reason:requirement.error,coverage:'Unknown',coverageGap:false,daysRemaining:null};
-    const window=requirementWindow(requirement),start=window?.start||parseDateValue(requirement.displayStart||requirement.countStart),countStart=window?.start||parseDateValue(requirement.countStart),due=window?.end||parseDateValue(requirement.dueDate);if(!start||!countStart||!due||countStart>due||start>due||!Number.isFinite(Number(requirement.required))||Number(requirement.required)<=0)return{status:'Needs Review',statusKey:'review',reason:'Missing or invalid requirement dates or required amount',coverage:'Unknown',coverageGap:false,daysRemaining:null};
-    const coverageEnd=today<=due?today:due,coverageVerified=coverageEnd>=countStart&&datasetCoversWindow(countStart,coverageEnd,requirement),coverageGap=coverageEnd>=countStart&&!coverageVerified,coverage=coverageVerified?'Verified':'Unverified';
-    if(counted>=Number(requirement.required||0))return{status:'Met',statusKey:'met',reason:`${counted} counted of ${requirement.required} required`,coverage,coverageGap,daysRemaining:calendarDayDiff(today,due)};
-    if(today<start)return{status:'In Progress',statusKey:'progress',reason:`Starts ${dateIso(start)}`,coverage:'Not needed yet',coverageGap:false,daysRemaining:calendarDayDiff(today,due)};
-    const daysRemaining=calendarDayDiff(today,due);
-    if((requirement.ongoingCount??counted)===0&&requirement.startingMonthRule==='new')return{status:'Starting-month Grace',statusKey:'progress',reason:'New service: no visit in the starting month. Recurring frequency begins next month; the First Ongoing deadline still applies. '+requirement.startingMonthReason,coverage,coverageGap:false,daysRemaining,startingMonthGrace:true};
-    if(counted===0&&requirement.startingMonthRule==='unknown')return{status:'History Needed',statusKey:'review',reason:requirement.startingMonthReason,coverage:'History needed',coverageGap:false,daysRemaining,historyNeeded:true};
-    if(counted===0&&today<=due)return{status:'No Visits',statusKey:'review',reason:`0 matching visits in this requirement window • ${requirement.required} required • due ${dateIso(due)}${daysRemaining?` in ${daysRemaining} day${daysRemaining===1?'':'s'}`:' today'}`,coverage,coverageGap,daysRemaining,noVisits:true};
-    if(today<=due&&daysRemaining>rules.warningDays)return{status:'In Progress',statusKey:'progress',reason:`${daysRemaining} days until due`,coverage,coverageGap,daysRemaining};
-    if(today<=due)return{status:'Due Soon',statusKey:'due',reason:`${counted} counted of ${requirement.required} required • due ${dateIso(due)}${daysRemaining?` in ${daysRemaining} day${daysRemaining===1?'':'s'}`:' today'}`,coverage,coverageGap,daysRemaining};
-    return{status:'Behind',statusKey:'behind',reason:`${counted} counted of ${requirement.required} required • due ${dateIso(due)}`,coverage,coverageGap,daysRemaining,noVisits:counted===0};
-  }
+  if(requirement.error)return{status:'Needs Review',statusKey:'review',reason:requirement.error,coverage:'Unknown',coverageGap:false,daysRemaining:null};
+  const window=requirementWindow(requirement),start=window?.start||parseDateValue(requirement.displayStart||requirement.countStart),countStart=window?.start||parseDateValue(requirement.countStart),due=window?.end||parseDateValue(requirement.dueDate);
+  if(!start||!countStart||!due||countStart>due||start>due||!Number.isFinite(Number(requirement.required))||Number(requirement.required)<=0)return{status:'Needs Review',statusKey:'review',reason:'Missing or invalid requirement dates or required amount',coverage:'Unknown',coverageGap:false,daysRemaining:null};
+  const coverageEnd=today<=due?today:due,coverageVerified=coverageEnd>=countStart&&datasetCoversWindow(countStart,coverageEnd,requirement),coverageGap=coverageEnd>=countStart&&!coverageVerified,coverage=coverageVerified?'Verified':'Unverified',daysRemaining=calendarDayDiff(today,due),noVisits=counted===0;
+  if(counted>=Number(requirement.required))return{status:'Met',statusKey:'met',reason:`${counted} counted of ${requirement.required} required`,coverage,coverageGap,daysRemaining};
+  if(today<start)return{status:'In Progress',statusKey:'progress',reason:`Starts ${dateIso(start)}`,coverage:'Not needed yet',coverageGap:false,daysRemaining};
+  if((requirement.ongoingCount??counted)===0&&requirement.startingMonthRule==='new')return{status:'In Progress',statusKey:'progress',reason:'Starting-month grace: recurring frequency begins next month; First Ongoing remains due under its own rule. '+requirement.startingMonthReason,coverage,coverageGap:false,daysRemaining,startingMonthGrace:true};
+  if(counted===0&&requirement.startingMonthRule==='unknown')return{status:'Needs Review',statusKey:'review',reason:requirement.startingMonthReason,coverage:'History needed',coverageGap:false,daysRemaining,historyNeeded:true};
+  if(today<=due&&daysRemaining>rules.warningDays)return{status:'In Progress',statusKey:'progress',reason:`${daysRemaining} days until due`,coverage,coverageGap,daysRemaining,noVisits};
+  if(today<=due)return{status:'Due Soon',statusKey:'due',reason:`${counted} counted of ${requirement.required} required • due ${dateIso(due)}`,coverage,coverageGap,daysRemaining,noVisits};
+  return{status:'Behind',statusKey:'behind',reason:`${counted} counted of ${requirement.required} required • due ${dateIso(due)}`,coverage,coverageGap,daysRemaining,noVisits};
+}
   function evaluateFrequencyRequirement(plan,requirement,analytics,rules,today){
     if(plan._identityConflict||plan._planConflict)requirement={...requirement,error:plan._identityConflict?'Stable Service ID is used for different children; correct the source identity before judging this requirement':'Overlapping plans without Service IDs may be amendments or separate services; resolve their identity before judging requirements'};
     const matched=requirement.error?{rows:[],candidateRows:[],match:'—',fulfilledProviders:[],providerChanged:false}:frequencyVisitMatches(plan,requirement,analytics,rules),submitted=matched.rows.length,deliveredRows=matched.rows.filter(rowIsDelivered),delivered=deliveredRows.length,counted=requirement.countMode==='delivered'?delivered:submitted,ongoingCount=matched.rows.filter(v=>!serviceLooksAssessment(v.service)&&!(requirement.assessmentEvidenceKeys||[]).includes(visitIdentityKey(v))).length,statusInfo=requirementStatus({...plan,...requirement,ongoingCount},counted,rules,today),freshness=flagDataConfidence(statusInfo.statusKey,requirement.dueDate,statusInfo.coverageGap,{...plan,...requirement}),sortedMatched=[...matched.rows].sort((a,b)=>(a.dos||'').localeCompare(b.dos||'')||(a.enteredOn||'').localeCompare(b.enteredOn||'')),lastSubmitted=sortedMatched.at(-1)||null,lastDeliveredVisit=sortedMatched.filter(rowIsDelivered).at(-1)||null;
@@ -2152,11 +2156,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if(plan._identityConflict||plan._planConflict){status='Needs Review';statusKey='review';reason=plan._identityConflict?'Stable Service ID is used for different children; correct the source identity':'Overlapping plans without Service IDs need identity review'}
       else if(!start||!end){status='Needs Review';statusKey='review';reason=!start?'Missing Assessment Start':'Missing End Date'}
       else if(start&&start>end){status='Needs Review';statusKey='review';reason='Assessment Start is after End Date'}
-      else if(completion){status='Completed';statusKey='met';reason=`Delivered ${completion.dos} on or before End Date`}
-      else if(today>end){status='Overdue';statusKey='behind';reason=`As of ${dateIso(today)}, End Date passed ${Math.abs(daysRemaining)} day${Math.abs(daysRemaining)===1?'':'s'} ago`}
+      else if(completion){status='Met';statusKey='met';reason=`Delivered ${completion.dos} on or before End Date`}
+      else if(today>end){status='Behind';statusKey='behind';reason=`As of ${dateIso(today)}, End Date passed ${Math.abs(daysRemaining)} day${Math.abs(daysRemaining)===1?'':'s'} ago`}
       else if(daysRemaining<=(wsLifecycle().assessmentWarningDays??30)){status='Due Soon';statusKey='due';reason=`${daysRemaining} day${daysRemaining===1?'':'s'} until End Date`}
-      else if(start&&today<start){status='Upcoming';statusKey='progress';reason=`Starts ${dateIso(start)}`}
-      const coverageEnd=end&&today<end?today:end,coverageGap=Boolean(start&&coverageEnd&&coverageEnd>=start&&!datasetCoversWindow(start,coverageEnd,plan)),freshness=flagDataConfidence(statusKey,end?dateIso(end):'',coverageGap,{...plan,...req});if(statusKey==='behind'&&freshness.needsUpdatedData)reason=`As of ${dateIso(today)}, the deadline has passed, but compliance is undetermined. ${freshness.dataConfidenceReason}`;
+      else if(start&&today<start){status='In Progress';statusKey='progress';reason=`Starts ${dateIso(start)}`}
+      const coverageEnd=end&&today<end?today:end,coverageGap=Boolean(start&&coverageEnd&&coverageEnd>=start&&!datasetCoversWindow(start,coverageEnd,plan)),freshness=flagDataConfidence(statusKey,end?dateIso(end):'',coverageGap,{...plan,...req});if(statusKey==='behind'&&freshness.needsUpdatedData)reason=`As of ${dateIso(today)}, the deadline has passed but available coverage does not establish a missed requirement. ${freshness.dataConfidenceReason}`;
       out.push(applySourceAlignment(applyEnrollmentRequirement({...plan,evidenceRows:evidence,endDate:end?dateIso(end):'',status,statusKey,statusReason:reason,assessmentStart:start?dateIso(start):'',completionDate:completion?.dos||'',completionEnteredOn:completion?.enteredOn||'',completionBusinessDays:completion?.businessDays??null,submitted,deliveredCount:delivered.length,deliveredProviders:deliveredProvidersFromVisits(delivered),daysRemaining,...freshness,rowClass:`assessment-row ${statusKey}${freshness.needsUpdatedData?' data-cutoff-row':''}`},plan,req),plan,req));
     }
     const sorted=out.sort((a,b)=>({behind:0,due:1,review:2,progress:3,met:4}[a.statusKey]-({behind:0,due:1,review:2,progress:3,met:4}[b.statusKey]))||(a.endDate||'').localeCompare(b.endDate||'')||a.provider.localeCompare(b.provider)||a.childId.localeCompare(b.childId));state.assessmentEvalCache={key:cacheKey,rows:sorted};boundedCacheSet(assessmentEvalCacheMap,cacheKey,sorted);return sorted;
@@ -3351,13 +3355,27 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return{...info,inside,blocked,reactivation,exit:exit||priorExit,interrupted:blocked||Boolean(exit)||reactivation,lifecycleEvidence:events.map(e=>({kind:e.kind,effectiveDate:e.effectiveDate,text:e.text,provenance:e.provenance,review:e.review})),historical:events.some(e=>e.kind==='exit'&&e.effectiveDate>end)};
   }
   function applyEnrollmentRequirement(result,plan=result,req=result){
-    const start=req.countStart||req.assessmentStart||req.periodStart||plan.startDate,end=req.dueDate||req.endDate||req.periodEnd||plan.endDate;if(!parseDateValue(start)||!parseDateValue(end))return result;
-    const applicabilityStart=plan.startDate&&plan.startDate>start&&plan.startDate<=end?plan.startDate:start,l=enrollmentWindow(plan,applicabilityStart,end),base={...result,lifecycleEvidence:l.lifecycleEvidence,historicalBeforeExit:l.historical,historicalLabel:l.historical?'Historical • before documented exit':'',applicabilityThrough:l.exit?dateIso(addCalendarDays(parseDateValue(l.exit.effectiveDate),-1)):end};
-    if(!l.interrupted){if(l.reviews.some(r=>!r.effectiveDate||r.effectiveDate<=end))return{...base,status:'Enrollment Needs Review',statusKey:'review',reason:'Enrollment evidence is ambiguous. Review the source note and effective date before judging this requirement.',statusReason:'Enrollment evidence needs review.',noVisits:false};return base}
-    if(result.statusKey==='met'&&!l.blocked&&!l.reactivation)return base;
-    const closed=!l.reactivation,notApplicable=l.blocked&&!l.reactivation,preExitEnd=l.exit?dateIso(addCalendarDays(parseDateValue(l.exit.effectiveDate),-1)):'',preExitCoverageVerified=Boolean(preExitEnd&&preExitEnd>=start&&datasetCoversWindow(start,preExitEnd,plan)),historicalReview=closed&&!notApplicable,reason=notApplicable?`Child inactive from ${l.exit?.effectiveDate||start}; this requirement falls in an inactive episode.`:closed?`Child exited on ${l.exit.effectiveDate}. This period crosses the exit date; no post-exit obligation or prorated target is assumed.`:'Enrollment changes within this period. Confirm the applicable plan and amount for the reactivated episode; prior-episode evidence cannot establish it.';
-    return{...base,status:notApplicable?'Not Applicable':closed?'Closed at Exit • History Review':'Enrollment Needs Review',statusKey:notApplicable?'closed':'review',reason,statusReason:reason,noVisits:false,needsUpdatedData:historicalReview&&!preExitCoverageVerified,sourceDataIncomplete:historicalReview&&!preExitCoverageVerified,dataConfidence:'Enrollment applicability',dataConfidenceReason:reason+(historicalReview&&!preExitCoverageVerified?' Pre-exit source coverage is unverified; historical review remains open.':''),planGap:false,lifecycleClosed:closed,historicalReview,preExitCoverageVerified,preExitEnd,coverageGap:historicalReview&&!preExitCoverageVerified};
+  const start=req.countStart||req.assessmentStart||req.periodStart||plan.startDate,end=req.dueDate||req.endDate||req.periodEnd||plan.endDate;
+  if(!parseDateValue(start)||!parseDateValue(end))return result;
+  const applicabilityStart=plan.startDate&&plan.startDate>start&&plan.startDate<=end?plan.startDate:start,l=enrollmentWindow(plan,applicabilityStart,end);
+  const base={...result,lifecycleEvidence:l.lifecycleEvidence,historicalBeforeExit:l.historical,historicalLabel:l.historical?'Historical • before documented exit':'',applicabilityThrough:l.exit?dateIso(addCalendarDays(parseDateValue(l.exit.effectiveDate),-1)):end};
+  const reviews=l.reviews.filter(r=>!r.effectiveDate||r.effectiveDate<=end);
+  const evidence=result.evidenceRows||[],target=Number(req.required)||1,countMode=req.countMode==='delivered'||req.kind==='assessment'?'delivered':'submitted';
+  const reliable=evidence.filter(v=>v.dos&&(!l.exit||v.dos<l.exit.effectiveDate)&&!reviews.some(r=>!r.effectiveDate||r.effectiveDate<=v.dos)&&(countMode!=='delivered'||rowIsDelivered(v)));
+  const metWithCertainEvidence=result.statusKey==='met'&&reliable.length>=target;
+  if(l.blocked&&!l.reactivation)return complianceStatus({...base,lifecycleClosed:true,noVisits:false},'closed','Child was already inactive when this requirement period began.');
+  if(l.reactivation||l.exit&&result.statusKey!=='met'){
+    const reason=l.reactivation?'Enrollment changes within this period; confirm the applicable plan for the reactivated episode.':`Child exited on ${l.exit.effectiveDate}. Review historical obligations before assigning missed compliance.`;
+    return complianceStatus({...base,eligibilityUnverified:true,historicalReview:!l.reactivation,noVisits:false,coverageGap:result.coverageGap},'review',reason);
   }
+  if(reviews.length){
+    const warning='Enrollment evidence requires review: '+reviews.map(r=>r.reason||r.text||'Ambiguous enrollment event').join('; ');
+    if(result.statusKey==='met'&&metWithCertainEvidence)return{...base,dataWarnings:[...(base.dataWarnings||[]),warning]};
+    return complianceStatus({...base,dataWarnings:[...(base.dataWarnings||[]),warning],eligibilityUnverified:true,noVisits:false},'review','Enrollment uncertainty could change which visits qualify.');
+  }
+  if(l.exit&&result.statusKey==='met'&&!l.blocked&&!l.reactivation)return base;
+  return base;
+}
   function enrollmentReviewRows(){
     const model=enrollmentModel();if(model.reviewRows)return model.reviewRows;const rows=[];for(const item of model.observations){if(item.status==='dismissed')continue;rows.push({childId:item.childId,provider:item.provider,providerKey:normalizedKey(item.provider),service:item.service||'Child enrollment',kind:'enrollment',ruleId:'enrollment:'+item.key,ruleName:'Child enrollment evidence',requirement:'Child enrollment evidence',periodStart:item.effectiveDate||'',periodEnd:item.effectiveDate||'',dueDate:'',status:item.status==='confirmed'?'Documented '+(item.kind==='exit'?'Exit':'Reactivation'):'Enrollment Needs Review',statusKey:item.status==='confirmed'?'closed':'review',reason:item.reason,evidenceRows:[],enrollmentKey:item.key,lifecycleEvidence:[item]})}
     const seen=new Set();for(const rec of state.savedReports)for(const v of rec.rows||[]){if(!v.dos||enrollmentEvidenceAllowed(v)||isEnrollmentService(v.service))continue;const id=visitIdentityKey(v);if(seen.has(id))continue;seen.add(id);rows.push({...v,kind:'enrollment',ruleId:'enrollment-conflict',ruleName:'Visit after child exit',requirement:'Visit after child exit',periodStart:v.dos,periodEnd:v.dos,status:'Enrollment Needs Review',statusKey:'review',reason:'A service visit occurs during a documented inactive episode. Confirm an explicit reactivation or correct the source; this visit does not reactivate the child.',evidenceRows:[v],lifecycleEvidence:enrollmentAt(v.childId,v.dos).events})}model.reviewRows=rows;return rows;
@@ -3402,13 +3420,26 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const cacheKey=JSON.stringify([identity,definition,needed]);if(index.confidence.has(cacheKey))return index.confidence.get(cacheKey);
     const entries=index.plans.get(identity)||[],allSources=[...new Set(entries.map(e=>e.source))],sources=[...new Set(entries.filter(e=>e.definition===definition).map(e=>e.source))],conflictingUndated=entries.some(e=>!e.source.sourceAsOf&&e.definition!==definition),latest=allSources.map(s=>s.sourceAsOf||'').sort().at(-1)||'',latestDefinitions=new Set(entries.filter(e=>e.source.sourceAsOf===latest).map(e=>e.definition));
     const observedThrough=visitDayCoverageIndex().last,hasApplicablePlan=sources.some(s=>!latest||!s.sourceAsOf||s.sourceAsOf===latest);
-    const verified=!conflictingUndated&&latestDefinitions.size<=1&&hasApplicablePlan&&(observedThrough>=needed||sources.some(s=>enrollmentDate(s.sourceAsOf)&&s.sourceAsOf<=today&&s.sourceAsOf>=needed));
-    const result={verified,needed,sources:sources.map(s=>({name:s.name,sourceAsOf:s.sourceAsOf||'',scope:s.coverageScope||'unknown',coverageStart:s.coverageStart||'',coverageEnd:s.coverageEnd||''})),reason:verified?'Plan and dataset-wide activity establish the reporting cutoff.':`The applicable plan, its identity, or the source cutoff cannot be confirmed through ${needed||'the required date'}. Submitted/delivered facts are preserved; review Source dates & scope.`};index.confidence.set(cacheKey,result);return result;
+    const eligibilityConflict=conflictingUndated||latestDefinitions.size>1,verified=!eligibilityConflict&&hasApplicablePlan&&(observedThrough>=needed||sources.some(s=>enrollmentDate(s.sourceAsOf)&&s.sourceAsOf<=today&&s.sourceAsOf>=needed));
+    const result={verified,eligibilityConflict,needed,sources:sources.map(s=>({name:s.name,sourceAsOf:s.sourceAsOf||'',scope:s.coverageScope||'unknown',coverageStart:s.coverageStart||'',coverageEnd:s.coverageEnd||''})),reason:verified?'Plan and dataset-wide activity establish the reporting cutoff.':`The applicable plan, its identity, or the source cutoff cannot be confirmed through ${needed||'the required date'}. Submitted/delivered facts are preserved; review Source dates & scope.`};index.confidence.set(cacheKey,result);return result;
   }
   function applySourceAlignment(result,plan=result,requirement=result){
-    const info=planSourceConfidence(plan,{...requirement,dueDate:result.applicabilityThrough||requirement.dueDate}),base={...result,planSourceVerified:info.verified,planSourceProvenance:info.sources||[]};if(info.verified||result.lifecycleClosed)return base;
-    return{...base,evidenceStatus:result.status,status:result.statusKey==='met'?'Evidence Satisfied • Plan Unverified':result.status,statusKey:result.statusKey==='met'?'review':result.statusKey,needsUpdatedData:true,sourceDataIncomplete:true,dataConfidence:'Source Data Incomplete',dataConfidenceReason:info.reason,reason:(result.reason||result.statusReason||'')+' '+info.reason,statusReason:(result.statusReason||result.reason||'')+' '+info.reason};
+  const info=planSourceConfidence(plan,{...requirement,dueDate:result.applicabilityThrough||requirement.dueDate});
+  const warnings=[...(result.dataWarnings||[])],addWarning=message=>{if(message&&!warnings.includes(message))warnings.push(message)};
+  if(result.needsUpdatedData||result.sourceDataIncomplete)addWarning(result.dataConfidenceReason||'The visit source does not establish coverage of the required dates.');
+  if(!info.verified)addWarning(info.reason||'The source plan could not be fully verified.');
+  const base={...result,planSourceVerified:info.verified,planSourceProvenance:info.sources||[],dataWarnings:warnings};
+  if(result.statusKey==='closed'||result.lifecycleClosed)return complianceStatus({...base,needsUpdatedData:false,sourceDataIncomplete:false},'closed');
+  if(info.eligibilityConflict||result.eligibilityUnverified)return complianceStatus({...base,needsUpdatedData:false,sourceDataIncomplete:false,eligibilityUnverified:true},'review',result.reason||info.reason||'Plan or enrollment eligibility requires verification.');
+  if(result.statusKey==='met')return complianceStatus({...base,needsUpdatedData:false,sourceDataIncomplete:false},'met');
+  const due=result.dueDate||requirement.dueDate||result.endDate||requirement.endDate||'';
+  const pastDue=Boolean(due&&dateIso(new Date())>due);
+  if(result.statusKey==='behind'&&(!pastDue||result.needsUpdatedData||result.coverageGap||!info.verified)){
+    const reason=!pastDue?'The deadline has not passed.':'Missing source coverage or unverified plan evidence prevents confirming this missed deadline.';
+    return complianceStatus({...base,needsUpdatedData:pastDue,sourceDataIncomplete:pastDue},pastDue?'review':'due',reason);
   }
+  return complianceStatus({...base,needsUpdatedData:false,sourceDataIncomplete:false});
+}
   function sourceMetadataDialog(id){
     const rec=state.savedReports.find(r=>r.id===id);if(!rec)throw new Error('Source is no longer loaded.');
     wsDialog('Source dates & scope',`<p>${esc(rec.name)}. Report generated/as-of date is separate from visit coverage. Do not use upload time or the latest DOS as a substitute. Different pull dates alone are not an error when both sources cover the required period and population.</p><form id="wsSourceMetaForm" data-id="${esc(id)}" class="ws-fields">${wsInputField('sourceAsOf','Report generated / as-of date',rec.sourceAsOf||'','date')}${wsSelect('coverageScope','Declared complete population/service scope',rec.coverageScope||'unknown',[['unknown','Unknown / partial extract'],['all','All children, providers and services'],['listed','Only the listed population/services']])}<label>Child IDs (one per line; blank = all)<textarea name="scopeChildren">${esc(rec.scopeChildren||'')}</textarea></label><label>Providers (one per line; blank = all)<textarea name="scopeProviders">${esc(rec.scopeProviders||'')}</textarea></label><label>Service families (one per line; blank = all)<textarea name="scopeServices">${esc(rec.scopeServices||'')}</textarea></label><label class="ws-wide">Basis for the declaration<textarea name="scopeReason">${esc(rec.scopeReason||'')}</textarea></label><p>Visit coverage dates are edited in Manage sources. A complete scope declaration must include zero-visit children; it cannot be inferred from the rows that happen to be present.</p></form>`,wsButton('saveSourceMeta','Save source metadata'));
